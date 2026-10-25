@@ -236,7 +236,7 @@ fn pcm(comptime n: usize) [2 * frame * n]u8 {
     return bytes;
 }
 
-fn expectHeader(head: []const u8, line: []const u8) !void {
+pub fn expectHeader(head: []const u8, line: []const u8) !void {
     try std.testing.expect(std.mem.indexOf(u8, head, line) != null);
 }
 
