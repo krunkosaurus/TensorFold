@@ -41,6 +41,7 @@ test {
     _ = @import("status_routes.zig");
     _ = @import("speech.zig");
     _ = @import("speech_stream_test.zig");
+    _ = @import("speech_speakers_test.zig");
     _ = @import("drama_prompt.zig");
     _ = @import("drama_voice_test.zig");
     _ = @import("drama_voice_multi_test.zig");

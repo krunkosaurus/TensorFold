@@ -4,6 +4,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
 
 ## Unreleased
 
+- Drama speech accepts dialogue tags `<|speaker:0|>` through `<|speaker:15|>` in requests and reference transcripts. Long-form continuations, history and redraws preserve the active speaker; untagged requests still default to speaker 0. See [dialogue speakers](docs/drama-voices.md#dialogue-speakers).
+
 - speech: Drama requests accept `temperature`, `top_p`, `top_k` (1 through 64) and exact unsigned 64-bit `seed`. Whole replies, streams, references, guidance and long-form segments retain the requested settings; omitted or null fields keep existing defaults. Explicit seeds advance by each segment's attempt number on redraws. See [speech sampling](docs/speech-sampling.md).
 
 - speech: long-form Drama 3 splits preserve complete special tokens, bracketed cues and nested paired direction tags, even when one span exceeds the character target. CJK punctuation supplies sentence and clause boundaries without requiring spaces, and topic-shift markers inside protected spans cannot split them. Existing input, prompt-token, segment and frame limits still apply ([docs](docs/drama-voices.md#long-form-replies)).

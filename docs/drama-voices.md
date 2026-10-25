@@ -117,11 +117,25 @@ tensorfold serve DRAMA3_DIR --voices voices/ --default-voice NAME
 ```
 
 `references: [{"text": ..., "vq_codes": [[...], ...]}]` sends references inline, as the reference accepts them. A named voice's references follow the request's own references.
-Refusals carry the reference's messages, in its order.
+Apart from accepting speaker IDs 0 through 15, refusals carry the reference's messages, in its order.
 Some refusals are the native server's own:
 
 - Reference audio (`audio_path`, `ref_audio`, `audio`, `data`) is refused: encode it with the tool and send `vq_codes`.
 - Unknown reference fields are refused, not dropped.
+
+## Dialogue speakers
+
+Input and reference transcripts accept canonical `<|speaker:N|>` tags with decimal IDs `0` through `15`. Untagged text defaults to speaker 0. Leading zeros, negative IDs, non-ASCII digits, incomplete tags and IDs above 15 are rejected.
+
+```json
+{"model": "drama-3", "input": "<|speaker:0|> Is the gate open? <|speaker:15|> Yes, come through. <|speaker:0|> Thank you.", "voice": "conversation"}
+```
+
+Use matching tags in the catalog entry's reference transcripts, or in inline `references`, to associate reference audio with the dialogue speakers. The HTTP `speaker` field remains an alias for the catalog name in `voice`; speaker IDs belong in text tags. All existing code, digest, attestation and prompt-budget checks still apply.
+
+Whole replies and PCM streams accept the same dialogue. With long-form enabled, a segment without a leading tag continues the last speaker from the preceding text, including across paragraph shifts. History references, guidance prompts and plain redraws retain that speaker. A new request starts with the usual speaker-0 default.
+
+The public [Drama 3 MLX prompt implementation](https://github.com/Sogni-AI/drama3-mlx/blob/ecc235039ccd5f982f66a6982184f57432354ab4/drama3_mlx/prompt.py) is a behavior reference for the speaker markers. This native change establishes prompt support; voice similarity and acoustic quality still require listening tests with suitable references.
 
 ## Expressiveness
 
