@@ -4,6 +4,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
 
 ## Unreleased
 
+- GLM-5.3-Flash on Metal, one Mac: structured output (`response_format`, the `guided_*` fields) and required or named `tool_choice` are served instead of refused with HTTP 400. The first token is drawn again from the prompt's last row among the grammar's tokens, each verified row is masked on the device before its draw, and MTP drafts stay on; a speed-up pair still refuses them. `test-glm-sampling` checks the masked draws against the host reference.
+
 - Server: temporaries a crash left beside notes and the `--slide-graph` file are cleared when the server opens their folders, only the server's own and only when their process is gone (#3132).
 
 - LFM2.5-24B-A2B on CUDA: the five prompt-stream writes whose state a prompt-cache keep copies (a slot clear, a prompt chunk, a one-row step, a verify round and a commit) take their stream from one helper that first waits for the keeps' copies, and a host test fails if a write skips it. Replies are unchanged (#2989, after #1503). Thanks to @jschmied.
