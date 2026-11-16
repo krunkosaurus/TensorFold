@@ -12,13 +12,20 @@ const kept_mod = @import("kept.zig");
 const Engine = @import("engine.zig").Engine;
 const Ref = @import("weights.zig").Ref;
 const Fence = @import("../../core/fence.zig").Fence;
+const Masks = @import("../../core/grammar_mask.zig").Masks;
 const lanes = @import("lanes");
 
 /// Handles of tokens on the GPU: queued rounds' picks and the host tokens they read, a slot each.
 const ring_len = 64;
 
 /// One stream's rows in a shared window: its pending token, then the drafts the slot holds, then host drafts.
-pub const Win = struct { slot: u32, pending: u32, held: u32, tokens: []const u32 };
+pub const Win = struct {
+    slot: u32,
+    pending: u32,
+    held: u32,
+    tokens: []const u32,
+    masks: []const u32 = &.{}, // structured output: each row's allowed-token bits (rows x words; empty: free draws)
+};
 
 /// One stream's head: it absorbs the prompt's last row or the last window's first rows (a next token each), drafts.
 pub const Draft = struct { slot: u32, prompt: bool, follow: []const u32, depth: u32 };
@@ -68,6 +75,7 @@ pub const Slots = struct {
     ring_cb: [ring_len]?mtl.CommandBuffer = @splat(null), // the queued round writing each slot (retained) until read
     fence: ?Fence = null, // orders queued rounds on the GPU
     pool: ?pool_mod.Pool = null, // one Mac: the streams share the engine's MLA caches (GLM_POOL=0: a window each)
+    masks: ?Masks = null, // structured output's bits: a window's rows and a first token's, made at the first grammar
 
     const Open = struct { cb: mtl.CommandBuffer, enc: mtl.ComputeEncoder, pool: mtl.objc.Pool };
 
@@ -91,6 +99,7 @@ pub const Slots = struct {
         sl.e.sync();
         sl.dropRing();
         if (sl.fence) |f| f.deinit();
+        if (sl.masks) |*m| m.deinit();
         var it = sl.snaps.valueIterator();
         while (it.next()) |snap| kept_mod.freeSnap(gpa, snap.*);
         sl.snaps.deinit(gpa);
@@ -299,6 +308,7 @@ pub const Slots = struct {
         }
         x.s = segs[0].s;
         x.segs = segs[0..wins.len];
+        x.masks = try sl.stageMasks(wins);
         fwd.backbone(&x, enc, e.sc.ids, total, segs[0].pos);
         fwd.head(&x, enc, e.sc.hidden, e.sc.logits, e.sc.picks, total);
         sl.ahead = .{ 0, 0 };
@@ -313,6 +323,61 @@ pub const Slots = struct {
         sl.windows += 1;
         for (wins) |w| sl.slots[w.slot].seen = sl.windows;
         sl.digest = std.hash.Wyhash.hash(sl.windows, std.mem.sliceAsBytes(Engine.u32s(e.sc.picks, total)));
+    }
+
+    /// The grammar bits, made at the first structured request: a row a window row, and a first token's.
+    fn grammarBits(sl: *Slots) !*Masks {
+        if (sl.e.ep != null) return error.Unsupported; // a pair's rank 1 has no bits: its picks would differ
+        if (sl.masks == null) sl.masks = try Masks.init(sl.e.device, st.max_rows, sl.e.c.vocab);
+        return &sl.masks.?;
+    }
+
+    /// The windows' bits in row order for one head call (null: no grammar); nothing in flight reads them here.
+    fn stageMasks(sl: *Slots, wins: []const Win) !?fwd.MaskRows {
+        for (wins) |w| {
+            if (w.masks.len > 0) break;
+        } else return null;
+        const m = try sl.grammarBits();
+        var row: usize = 0;
+        for (wins) |w| {
+            const rows = 1 + @as(usize, w.held) + w.tokens.len;
+            if (w.masks.len == 0) { // a free stream beside a grammar's: every token allowed
+                @memset(m.bits.slice(u32, (m.rows + 1) * m.words)[row * m.words ..][0 .. rows * m.words], 0xffff_ffff);
+            } else {
+                if (w.masks.len != rows * m.words) return error.InvalidGrammarMasks;
+                try m.put(row, w.masks);
+            }
+            row += rows;
+        }
+        return .{ .bits = m, .row = 0 };
+    }
+
+    /// Slot `i`'s first token drawn again from its prompt's last row, among `mask`'s allowed tokens; `draws` rules it.
+    pub fn firstMasked(sl: *Slots, i: u32, mask: []const u32, draws: ?*const fwd.Draws) !u32 {
+        const e = sl.e;
+        const slot = try sl.slotAt(i);
+        const m = try sl.grammarBits();
+        if (mask.len != m.words) return error.InvalidGrammarMasks;
+        sl.settleAll(); // as a prompt chunk: the head below writes the scratch logits and picks a window's keep reads
+        try sl.flush();
+        try m.put(m.firstRow(), mask);
+        const pool = mtl.objc.Pool.push();
+        defer pool.pop();
+        var x = sl.ctx(slot);
+        if (draws) |d| x.draws = d;
+        x.masks = .{ .bits = m, .row = m.firstRow() };
+        const b = e.begin();
+        fwd.head(&x, b.enc, slot.last, e.sc.logits, e.sc.picks, 1);
+        try e.finish(b.cb, b.enc);
+        return Engine.u32s(e.sc.picks, 1)[0];
+    }
+
+    /// Slot `i`'s first `out.len` held drafts as host tokens: the open buffer's drafts land first.
+    pub fn heldTokens(sl: *Slots, i: u32, out: []u32) !void {
+        const slot = try sl.slotAt(i);
+        if (out.len > slot.held_n) return error.WindowOutOfStep;
+        try sl.flush();
+        @memcpy(out, Engine.u32s(slot.held, out.len));
     }
 
     /// A handle for host token `t`: its ring slot.

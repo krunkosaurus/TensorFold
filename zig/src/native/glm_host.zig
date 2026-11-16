@@ -123,8 +123,8 @@ pub fn open(gpa: Allocator, io: std.Io, dir: []const u8, window: u32, speed_up: 
             offer.?.video = .{ .prepare = prepareVideo, .video_token = vm[1], .group_open = v.c.image_start, .group_close = v.c.image_end, .markers = &h.video_markers, .video_tokens = o.video_tokens, .max_videos = o.max_videos, .max_frames = o.max_frames };
         }
     }
-    // sampled draws on one Mac (the pair refuses them per request)
-    h.host = api.LaneHost.init(gpa, io, &h.core, .{ .benchmark_ranks = if (eng.ep != null) 2 else 1, .benchmark_group = if (eng.ep) |p| p.benchmark_group else null, .name = "glm-zig", .lanes = n, .context_window = serves, .prefill_step = eng.chunk_rows, .decode_share = decode_share, .greedy_only = eng.ep != null, .admit = if (h.slots.pool != null) .{ .ctx = &h.back, .fits = glm.backend.Backend.fits } else null, .vision = offer });
+    // sampled draws and structured output on one Mac (the pair refuses them per request)
+    h.host = api.LaneHost.init(gpa, io, &h.core, .{ .benchmark_ranks = if (eng.ep != null) 2 else 1, .benchmark_group = if (eng.ep) |p| p.benchmark_group else null, .name = "glm-zig", .lanes = n, .context_window = serves, .prefill_step = eng.chunk_rows, .decode_share = decode_share, .greedy_only = eng.ep != null, .structures = eng.ep == null, .admit = if (h.slots.pool != null) .{ .ctx = &h.back, .fits = glm.backend.Backend.fits } else null, .vision = offer });
     h.host.memory = .{ .ctx = h, .read = readMemory };
     h.cache = null;
     const budget = cacheBudget(eng, cache_gib);

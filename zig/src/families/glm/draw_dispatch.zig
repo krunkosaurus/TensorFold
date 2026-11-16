@@ -53,6 +53,29 @@ fn encodeGreedy(enc: mtl.ComputeEncoder, pipeline: mtl.Pipeline, logits: mtl.Buf
     enc.dispatchGroups(mtl.Size.of(run, 1, 1), mtl.Size.of(1024, 1, 1));
 }
 
+/// The calls core/grammar_mask.zig's encode makes, on the head's plain serial encoder.
+const MaskEnc = struct {
+    e: mtl.ComputeEncoder,
+
+    pub fn pipe(m: MaskEnc, p: mtl.Pipeline) void {
+        m.e.setPipeline(p);
+    }
+    pub fn buf(m: MaskEnc, b: mtl.Buffer, offset: usize, index: usize) void {
+        m.e.setBuffer(b, offset, index);
+    }
+    pub fn bytes(m: MaskEnc, value: anytype, index: usize) void {
+        m.e.setBytes(std.mem.asBytes(&value), index);
+    }
+    pub fn run(m: MaskEnc, grid: [3]usize, group: [3]usize) void {
+        m.e.dispatchThreads(mtl.Size.of(grid[0], grid[1], grid[2]), mtl.Size.of(@min(group[0], grid[0]), @min(group[1], grid[1]), @min(group[2], grid[2])));
+    }
+};
+
+/// Structured output before a head draw: `rows` logits rows lose the tokens `bits`' rows from `row` disallow (Masks).
+pub fn mask(enc: mtl.ComputeEncoder, bits: anytype, logits: mtl.Buffer, logits_off: usize, vocab: usize, row: usize, rows: usize) void {
+    bits.encode(MaskEnc{ .e = enc }, logits, logits_off, vocab, row, rows);
+}
+
 /// One head draw: the rows split into maximal runs of one mode (sampled tf_sample_full, else argmax).
 pub fn encode(enc: mtl.ComputeEncoder, sample_pipeline: mtl.Pipeline, argmax_pipeline: mtl.Pipeline, logits: mtl.Buffer, logits_off: usize, picks: mtl.Buffer, picks_off: usize, payload: *const draw.Payload, pitch_words: usize) void {
     var r: usize = 0;
