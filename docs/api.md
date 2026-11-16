@@ -645,8 +645,10 @@ Flash Next and Gemma 4 on CUDA have it too. Gemma 4 on CUDA picks a greedy row u
 allowed tokens of its logits read back; sampled rows are masked on the device before the draw.
 Qwen3.8-27B applies the grammar to its first draw, each verified row and each branch of its draft proposals.
 Structured requests use its shared lane core, including when the ordinary lone-request serial optimization is enabled.
-CUDA determines support from its loaded backend's mask hook. GLM Metal
-(`glm-zig`, `glm-dsa-zig`) lacks that hook and refuse required/named choices before generation with HTTP 400, for example:
+GLM-5.3-Flash on one Mac (`glm-zig`) has it too: the first token is drawn again from the prompt's last row among the
+grammar's tokens, each verified row is masked on the device before its draw, and MTP drafts stay on.
+CUDA determines support from its loaded backend's mask hook. A GLM-5.3-Flash speed-up pair of Macs (`glm-zig`) and
+GLM-5.3 EXLR8 on Metal (`glm-dsa-zig`) lack that hook and refuse required/named choices before generation with HTTP 400, for example:
 `backend 'glm-zig' cannot enforce tool_choice "required" or a named function: it has no token grammar support; send "auto" or "none"`.
 The server does not silently turn a required call into `auto`. Installing the grammar library does not add a missing
 backend mask hook. A missing library or grammar compilation error is also refused before generation with its reason.

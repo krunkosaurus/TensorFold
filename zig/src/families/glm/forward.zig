@@ -10,6 +10,7 @@ const moe_route = @import("../../core/moe_route.zig");
 const hc_shape = @import("kernels.zig").hc_shape;
 const hc_core = @import("../../core/hc.zig");
 const wide = @import("wide.zig");
+const Masks = @import("../../core/grammar_mask.zig").Masks;
 const Ref = wts.Ref;
 /// The MoE block (moe.zig).
 pub const moe = @import("moe.zig").moe;
@@ -33,7 +34,11 @@ pub const Ctx = struct {
     segs: []const Seg = &.{}, // a shared window's streams in row order (empty: every row is `s`'s)
     inject: ?*const Inject = null, // a prompt pass's image rows over its placeholder embeddings
     draws: ?*const Draws = null, // the rows' draw rules in row order (null: every row draws greedily)
+    masks: ?MaskRows = null, // structured output: the head's rows lose their grammars' disallowed tokens first
 };
+
+/// A head call's grammar bits: the call's row r takes bits row `row + r` (core/grammar_mask.zig).
+pub const MaskRows = struct { bits: *const Masks, row: usize };
 
 /// An image prompt's tower output: prompt rows [at, at + n) of each span embed as rows [row, row + n) of `rows`.
 pub const Inject = struct { rows: Ref, spans: []const Span };
@@ -526,6 +531,11 @@ pub fn headOver(x: *const Ctx, e: mtl.ComputeEncoder, in: Ref, logits: Ref, pick
         var q = x.w.head;
         q.n = n;
         qmv(x, e, if (x.c.tp > 1) x.k.qmv_head_tp else x.k.qmv_head, in, q, logits, rows);
+        // structured output: one Mac's whole rows (a pair splits the columns and refuses grammars); drafts stay free
+        if (!greedy) if (x.masks) |g| {
+            std.debug.assert(x.c.tp == 1 and n == x.c.vocab);
+            @import("draw_dispatch.zig").mask(e, g.bits, logits.buf, logits.off, n, g.row, rows);
+        };
         const payload = @import("draw_rule.zig").Payload.init(if (greedy) null else x.draws, rows, vocab);
         // draw_dispatch splits the rows into runs of one mode: sampled tf_sample_full, else argmax.
         @import("draw_dispatch.zig").encode(e, x.k.sample, x.k.argmax, logits.buf, logits.off, picks.buf, picks.off, &payload, n);

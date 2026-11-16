@@ -47,7 +47,7 @@ pub const Backend = struct {
     }
 
     pub fn backend(b: *Backend) be.Backend {
-        return .{ .ptr = b, .vtable = &.{ .prefill = prefill, .prefill_step = prefillStep, .first = first, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .release = release, .reports_fill = true } };
+        return .{ .ptr = b, .vtable = &.{ .prefill = prefill, .prefill_step = prefillStep, .first = first, .first_masked = firstMasked, .held = held, .queue = queue, .read = read, .verify = verify, .keep = keep, .draft = draft, .release = release, .reports_fill = true } };
     }
 
     /// Windows of up to 16 rows (drafted == plain at every width), the MTP head's chains, every stream in one forward.
@@ -341,6 +341,21 @@ pub const Backend = struct {
         return b.sl.ringPut(Engine.u32s(b.sl.e.sc.picks, 1)[0]);
     }
 
+    /// `first` with the token drawn again from the prompt's last row among `mask`'s allowed tokens (structured output).
+    fn firstMasked(ptr: *anyopaque, s: *Stream, position: u64, mask: []const u32) anyerror!u64 {
+        const b = self(ptr);
+        const i = try b.slotOf(s);
+        if (position != b.sl.length(i)) return error.PositionMismatch;
+        const draws = @import("draw_rule.zig").promptDraws(s.sampling, @intCast(s.prompt_len), b.sl.e.c.vocab);
+        return b.sl.ringPut(try b.sl.firstMasked(i, mask, if (draws.n > 0) &draws else null));
+    }
+
+    /// The stream's held drafts as host tokens in window order: a grammar walks them before their window.
+    fn held(ptr: *anyopaque, s: *Stream, out: []u32) anyerror!void {
+        const b = self(ptr);
+        try b.sl.heldTokens(try b.slotOf(s), out);
+    }
+
     /// The next one-token round queued ahead: its token the handle's (read on GPU) or the host's, its pick a handle.
     fn queue(ptr: *anyopaque, s: *Stream, feed: be.Feed, position: u64) anyerror!u64 {
         const b = self(ptr);
@@ -370,7 +385,8 @@ pub const Backend = struct {
             for (w.positions, 0..) |p, r| if (p != at + r + 1) return error.PositionMismatch;
             if (w.held > b.sl.slots[i].held_n or at + w.rows() + 1 > b.sl.slots[i].s.cap) return error.WindowOutOfStep;
             total += w.rows();
-            try b.wins.append(b.gpa, .{ .slot = i, .pending = w.pending, .held = w.held, .tokens = w.tokens });
+            if (w.masks.len > 0 and b.sl.e.ep != null) return error.Unsupported; // a pair's rank 1 hears no bits
+            try b.wins.append(b.gpa, .{ .slot = i, .pending = w.pending, .held = w.held, .tokens = w.tokens, .masks = w.masks });
         }
         if (total > st.max_rows) return error.WindowOutOfStep;
         const draws = @import("draw_rule.zig").windowDraws(windows, b.sl.e.c.vocab);

@@ -48,6 +48,13 @@ pub fn sampler(
         .link_libc = true,
         .imports = &.{ .{ .name = "metal", .module = metal }, .{ .name = "lanes", .module = lanes } },
     });
+    const grammar_mask = b.createModule(.{
+        .root_source_file = b.path("zig/src/core/grammar_mask.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{ .{ .name = "metal", .module = metal }, .{ .name = "kernel_sources", .module = sources } },
+    });
     const exe = b.addExecutable(.{ .name = "tf-glm-sample-check", .root_module = b.createModule(.{
         .root_source_file = b.path("zig/tests/glm_sample_check.zig"),
         .target = target,
@@ -57,6 +64,7 @@ pub fn sampler(
             .{ .name = "metal", .module = metal },
             .{ .name = "lanes", .module = lanes },
             .{ .name = "draw_dispatch", .module = glm_draw },
+            .{ .name = "grammar_mask", .module = grammar_mask },
             .{ .name = "kernel_sources", .module = sources },
         },
     }) });
